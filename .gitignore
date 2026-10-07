@@ -39,3 +39,6 @@ calibration_adjusted.json
 
 # Logs
 *.log
+
+videos/
+calibration-results/

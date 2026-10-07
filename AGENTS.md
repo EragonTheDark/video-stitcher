@@ -47,6 +47,91 @@ cargo run --release -p reco-cli --features profiling -- stitch left.mp4 right.mp
 - Contribution conventions (branch naming, PR template, CLA): see
   [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Local machine setup (Rjgoo — verified September 22, 2026)
+
+- Prefer **native Windows** for local builds, calibration, and stitching. The
+  user uses **Visual Studio Developer PowerShell with the x64 environment**.
+  WSL is available but is not required for this workflow. Do not infer that
+  Windows tools are missing merely because they are absent from WSL's PATH.
+- Windows checkout: `C:\Users\Rjgoo\Developer\video-stitcher`.
+  The same checkout is visible in WSL at
+  `/mnt/c/Users/Rjgoo/Developer/video-stitcher`; it does not need to be moved.
+- GPU: **NVIDIA GeForce RTX 5060 Ti, approximately 16 GB VRAM**, with an
+  installed Windows NVIDIA driver. Reco defaults to **DirectX 12 on Windows**.
+  CUDA Toolkit is not required for the initial non-AI calibration/stitch task.
+- FFmpeg installation: **8.1 shared Windows x64 bundle** at
+  `C:\Tools\ffmpeg-8.1`; user `FFMPEG_DIR` points there and user PATH contains
+  `C:\Tools\ffmpeg-8.1\bin`. Matching avcodec-62, avformat-62, avutil-60,
+  swscale-9, and other FFmpeg DLLs were found there. Use this installation;
+  the older 7.1 reference in CI/setup docs is not a local version requirement.
+- Windows user PATH includes `C:\Users\Rjgoo\.cargo\bin` and
+  `C:\Program Files\LLVM\bin`. Use the repository-pinned Rust **1.92.0**
+  MSVC toolchain (`x86_64-pc-windows-msvc`). Recheck tool versions or
+  `LIBCLANG_PATH` if diagnosing a build; their current values were not captured
+  in the successful executable-help verification.
+- Existing binary: `target\release\reco.exe`. Both `calibrate --help` and
+  `stitch --help` printed their help and exited **0**. This confirms startup
+  and argument parsing, not GPU execution, codec operation, or a successful
+  rendered stitch. Those runtime checks remain to be performed.
+- WSL: Ubuntu 24.04 on WSL2. NVIDIA is visible to `nvidia-smi`, but the Vulkan
+  probe exposed only CPU `llvmpipe`. Do not equate CUDA visibility with a
+  working hardware Vulkan path or redirect this task to WSL GPU processing.
+- Prefer a targeted CLI build for the current calibration work:
+  `cargo build --locked --release -p reco-cli --no-default-features`.
+  Whole-workspace commands also include OBS and require its development setup;
+  that Windows setup has not been verified. Preserve the project's full CI
+  requirements when contributing code.
+
+### Running the Windows binary from a WSL-hosted agent
+
+Use `powershell.exe -NoProfile` to execute Windows PowerShell code. This session
+initially inherited a stale PATH; simple invocation returned no captured output
+and an unset `$LASTEXITCODE`. Do not treat an empty result or the PowerShell
+wrapper's exit code as proof that Reco succeeded. The following process-local
+PATH refresh and explicit process capture successfully verified both commands:
+
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+    [Environment]::GetEnvironmentVariable('Path', 'User')
+Set-Location 'C:\Users\Rjgoo\Developer\video-stitcher'
+foreach ($verb in @('calibrate', 'stitch')) {
+    $stdoutFile = [IO.Path]::GetTempFileName()
+    $stderrFile = [IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process -FilePath '.\target\release\reco.exe' `
+            -ArgumentList @($verb, '--help') -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+        Write-Output "$verb exit code: $($process.ExitCode)"
+        Get-Content $stdoutFile
+        Get-Content $stderrFile
+        if ($process.ExitCode -ne 0) { throw "$verb failed: $($process.ExitCode)" }
+    } finally {
+        Remove-Item $stdoutFile, $stderrFile
+    }
+}
+```
+
+For builds, initialize the installed Visual Studio x64 developer environment;
+refreshing PATH alone is not a substitute for its compiler/SDK variables.
+Calibration audio sync is disabled with **`--auto-sync false`**; the help text's
+mention of `--no-auto-sync` disagrees with the actual listed argument.
+See [Windows setup checklist](docs/windows-development-setup.md) and
+[ScoutCam calibration handoff](prompts/calibrate-scoutcam-20260920-173128.md)
+for further context. Installation checklist items are plans unless separately
+verified; do not reinstall software or change drivers based on stale checklist
+status.
+
+### ScoutCam calibration results — September 22, 2026
+
+See the [ScoutCam 720p30 calibration report](calibration-results/scoutcam-20260920-173128/report.md)
+for measured lens profiles, fitting diagnostics, exact commands, and three
+rendered validation clips. The calibration is **provisional**, not production-validated:
+black render borders, stretched outer edges, and synchronization/coverage checks
+remain unresolved. Artifacts include `match-provisional.json` and per-camera
+`*-lens-provisional.json` in the same results directory. Original recordings
+remain unchanged. Results apply to the September 20 720p session; do not blindly
+reuse profiles for 1080p. Generated artifacts are local and uncommitted.
+
 ## Code standards
 
 - `rustfmt` formatting (config in `rustfmt.toml`)
